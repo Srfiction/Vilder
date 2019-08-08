@@ -1,11 +1,5 @@
-chainJoint(cantidad=8, nombre='test', lado='s', chin=True, radio=1, inicio='joint1', fin='joint2', unparent=True)
-
-nurbs = makeRibbon(point1='joint1', point2='joint2', width=10, module='koko', side='s', u=1, v=7)[0]
-
-attachBones(nurb = nurbs, side='side', system='spine')
-
-import vilder as wtf
-import AutoRig.Functions_Autorig
+import Vilder.vFunctions as vFun
+import maya.cmds as cmds
 
 
 class refAutorig:
@@ -28,8 +22,3 @@ class refAutorig:
             else:
                 cmds.parent(jnt, jnt_list[num-1])  
                 jnt_list.append(jnt)  
-            
-         
-ref = refAutorig('spine', 'r')
-ref.referenceChain(mod='spine', sid='l', quantity=2)
-    

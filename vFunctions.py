@@ -1,3 +1,5 @@
+import maya.cmds as cmds
+from maya.api import OpenMaya
 def zero():
     list = cmds.ls(sl=True)
 
