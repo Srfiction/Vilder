@@ -1,0 +1,293 @@
+import maya.cmds as cmds
+from maya.api import OpenMaya
+
+ 
+
+#---------------------------------SETTING-----------------------------------------------
+#Variables
+system_name = 'testTentacle'
+side = 'c'
+
+ 
+
+num_joints = 15
+num_controls = 3
+
+ 
+
+#Start/end
+input = cmds.ls(sl=True)
+
+ 
+
+start_point_matrix = cmds.xform(input[0], query=True, matrix=True, worldSpace=True)
+start_point = cmds.createNode('transform', name='startPoint_{}_null'.format(side))
+cmds.xform(start_point, matrix=start_point_matrix, centerPivots=True)
+
+ 
+
+
+end_point_matrix = cmds.xform(input[1], query=True, matrix=True, worldSpace=True)
+end_point = cmds.createNode('transform', name='endPoint_{}_null'.format(side))
+cmds.xform(end_point, matrix=end_point_matrix, centerPivots=True)
+
+ 
+
+temp_aimConstraint = cmds.aimConstraint(end_point, start_point, maintainOffset=False)
+cmds.delete(temp_aimConstraint)
+
+ 
+
+cmds.select(clear=True)
+
+ 
+
+#------------------------------CONSTRUCTION----------------------------------------------
+#Joint chain split
+start_pos = cmds.xform(start_point, q=True, t=True, ws=True)
+end_pos = cmds.xform(end_point, q=True, t=True, ws=True)
+start_vector = OpenMaya.MVector(start_pos)
+end_vector = OpenMaya.MVector(end_pos)
+
+ 
+
+i = 0
+joints = []
+
+ 
+
+for num in range(num_joints):
+    new_name = '{}{}_{}_nskn'.format(system_name, str(i+1).zfill(2), side)
+    
+    dif_point = end_vector-start_vector
+    offset = 1.0/(num_joints-1)
+    new_point = dif_point*offset
+    final_point = start_vector + new_point  
+    mid_pos = dif_point*(offset*num)
+    final_pos = start_vector+mid_pos
+    
+    new_jnt = cmds.joint(name=new_name, p=list(final_pos))
+    joints.append(new_jnt)
+    
+    if i != 0:
+        cmds.joint(joints[i-1], e=True, zso=True, oj='xyz', sao='yup')  
+    i += 1
+
+ 
+
+#Nurb creation
+cvPos_list = []
+main_orient = cmds.xform(start_point, query= True, matrix=True)
+
+ 
+
+orient_null = cmds.createNode('transform', name='orient_{}_null'.format(side))
+cmds.xform(orient_null, matrix=main_orient)
+
+ 
+
+for i in joints:
+    new_pos = cmds.xform(i, query = True, translation = True, worldSpace = True)
+    cvPos_list.append(new_pos)
+
+ 
+
+new_curve = cmds.curve(degree=3, point=cvPos_list, os=True)
+cmds.parent(new_curve, orient_null)
+
+ 
+
+cmds.makeIdentity(new_curve, apply=True, t=1, r=1, s=1, n=0)
+cmds.parent(new_curve, world=True)
+cmds.xform(new_curve, centerPivots=True)
+
+ 
+
+second_curve = cmds.duplicate(new_curve)
+
+ 
+
+cmds.move(1, new_curve, rpr=True, z=True, os=True)
+cmds.move(-1, second_curve, rpr=True, z=True, os=True)
+
+ 
+
+new_nurb = cmds.loft(new_curve, second_curve, name='{}_{}_nurb'.format(system_name, side))
+new_nurb = new_nurb[0]
+
+ 
+
+cmds.delete(new_nurb, constructionHistory = True)
+cmds.delete(new_curve)
+cmds.delete(second_curve[0])
+
+ 
+
+#Fols creation
+vParameter_factor = 1.0/(num_controls+1)
+fol_list = []
+
+ 
+
+for i in range(num_controls):
+    
+    follicle_name = '{}{}{}_{}_fol'.format(system_name, str(i+1).zfill(2), 'Ctr', side )
+    follicle = cmds.createNode('transform', name = follicle_name)
+    follicle_shape = cmds.createNode('follicle', name = '{}Shape'.format(follicle_name), parent = follicle)
+    cmds.connectAttr('{}.local'.format(new_nurb), '{}.inputSurface'.format(follicle_shape), force = True)
+    cmds.connectAttr('{}.worldMatrix[0]'.format(new_nurb), '{}.inputWorldMatrix'.format(follicle_shape), force = True)
+    for axis in 'XYZ':
+        cmds.connectAttr('{}.outTranslate{}'.format(follicle_shape, axis), '{}.translate{}'.format(follicle, axis), force = True)
+        cmds.connectAttr('{}.outRotate{}'.format(follicle_shape, axis), '{}.rotate{}'.format(follicle, axis), force = True)
+    fol_list.append(follicle)
+
+ 
+
+    fol_vParameter = (vParameter_factor*(i+1))*10
+    
+    cmds.setAttr('{}.parameterU'.format(follicle_shape), 0.5)
+    cmds.setAttr('{}.parameterV'.format(follicle_shape), fol_vParameter)
+
+ 
+
+
+#Controls creation
+c = 0
+ctr_list = []
+for fol in fol_list:
+    ctr_name = '{}{}_{}_ctr'.format(system_name, str(c).zfill(2), side)
+    zero_name = '{}{}Ctr_{}_zero'.format(system_name, str(c).zfill(2), side)
+    ctr = cmds.circle(n = ctr_name)[0]
+    cmds.delete(ctr, constructionHistory=True)
+    zero = cmds.group(ctr, n=zero_name)
+    
+    cmds.addAttr(ctr, ln = 'position', at = 'double', min = 0, max = 10, dv = 0) 
+    cmds.setAttr('{}.position'.format(ctr), e=True, keyable = True)
+
+ 
+
+    cmds.addAttr(ctr, ln = 'falloff', at = 'double', min = 0, max = 10, dv = 0)
+    cmds.setAttr('{}.falloff'.format(ctr), e=True, keyable = True)
+
+ 
+
+    cmds.addAttr(ctr, ln = 'numberJoints', at = 'double', min = 0, max = False, dv = 0)
+    cmds.setAttr('{}.numberJoints'.format(ctr), e=True, keyable = False, channelBox = True)  
+ 
+    pos = cmds.xform(fol, ws=True, q=True, t=True)
+    cmds.xform(zero, t=pos, ws=True)
+    
+    set_V = cmds.getAttr('{}.parameterV'.format(fol))
+    cmds.setAttr('{}.position'.format(ctr), set_V)
+    
+    cmds.parent(zero, fol)
+    
+    position_multiplier_name = '{}{}_{}_multDoubleLinear'.format(system_name, str(c).zfill(2), side)
+    position_multiplier = cmds.createNode('multDoubleLinear', name=position_multiplier_name)
+    cmds.setAttr('{}.input2'.format(position_multiplier), 0.1)
+    
+    cmds.connectAttr('{}.position'.format(ctr), '{}.input1'.format(position_multiplier))
+    cmds.connectAttr('{}.output'.format(position_multiplier), '{}.parameterV'.format(fol))
+    
+    temp_aim = cmds.aimConstraint(end_point, zero, maintainOffset=False)
+    cmds.makeIdentity(ctr, apply=True, t=1, r=1, s=1, n=0)
+    cmds.delete(temp_aim)
+
+ 
+
+    ctr_shape = cmds.listRelatives(ctr, children=True, type="shape")[0]
+    cvs_sel = cmds.select("{}.cv[0:7]".format(ctr_shape))
+    cmds.rotate(0,90,0, os=True)
+    
+    #get Number of Joints
+
+ 
+
+    reduceByTen_mult = createMultDiv(name='{}ByTen_c_mult'.format(ctr_name), inputX1 = '{}.falloff'.format(ctr), inputX2=10, whantToDive=True,
+                                                   inputY1 = '{}.position'.format(ctr), inputY2=10) 
+                                                       
+    falloffBy2_mult = createMultDiv(name='{}fallof_c_mult'.format(ctr_name), inputX1 = '{}.outputX'.format(reduceByTen_mult), inputX2=2)
+   
+    falloff_range = cmds.shadingNode('setRange', au=True, n='{}falloff_c_setRange'.format(ctr_name))     
+    cmds.setAttr('{}.oldMinX'.format(falloff_range), 0)        
+    cmds.setAttr('{}.oldMaxX'.format(falloff_range), 1)                 
+                
+    cmds.setAttr('{}.minX'.format(falloff_range), 1)        
+    cmds.setAttr('{}.maxX'.format(falloff_range), num_joints)#Aquí el numero de joints       
+    
+    cmds.connectAttr('{}.outputX'.format(falloffBy2_mult), '{}.value.valueX'.format(falloff_range))
+    
+    cmds.connectAttr('{}.outValue.outValueX'.format(falloff_range), '{}.numberJoints'.format(ctr))
+    
+    
+
+ 
+
+
+    c += 1
+    ctr_list.append(ctr)
+
+ 
+
+
+#Nested Nuls creation
+c=0
+for jnt in joints:
+    jnt_parent = cmds.listRelatives(jnt, p=True)
+    pos = cmds.xform(jnt, q=True, ws=True, m=True)
+    
+    jnt_factor = 1.0 / (num_joints -1)
+    jnt_index = joints.index(jnt)
+    
+    for ctr in range(num_controls):
+        
+        ref_name = '{}{}Ctr{}_{}_ref'.format(system_name, str(c+1).zfill(2), ctr+1, side)
+        ref = cmds.group(em=True, n=ref_name)
+        
+        jnt_posOnNurb = jnt_index * jnt_factor
+        cmds.addAttr(ref, longName='position', keyable=False, at='double', dv=0)
+        cmds.setAttr('{}.position'.format(ref), jnt_posOnNurb, channelBox=True)
+        cmds.select(clear=True)
+        if ctr == (num_controls-1):
+            cmds.parent(ref, old_ref)
+            last_ref = ref              
+        elif ctr > 0: 
+            cmds.parent(ref, old_ref)     
+        elif ctr == 0:    
+            first_ref = ref    
+        old_ref = ref
+        
+        used_ctr = ctr_list[ctr]
+        trunkTreeNode(ctr = used_ctr, jntZero = ref, jntNumber = num_joints, name = ref_name)
+        
+        
+    cmds.xform(first_ref, m=pos, ws=True)
+    try:
+        cmds.parent(first_ref, jnt_parent)
+    except:
+        pass
+    cmds.parent(jnt, last_ref)
+
+ 
+
+    c += 1
+    
+    
+#Nurb skin
+skin_elems = joints
+skin_elems.append(new_nurb)
+cmds.skinCluster(skin_elems, name='{}_{}_skinCLuster'.format(system_name, side),
+                             toSelectedBones=True,
+                             bindMethod=0,
+                             skinMethod=0,
+                             normalizeWeights=1,
+                             maximumInfluences=1
+                 )
+    
+#--------------------------DELETE SOBRAS-------------------------------------------
+for elem in [start_point, end_point, orient_null]:
+    cmds.delete(elem)
+
+ 
+
+cmds.select(clear=True)
